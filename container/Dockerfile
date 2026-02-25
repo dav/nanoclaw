@@ -32,6 +32,10 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 # Install agent-browser and claude-code globally
 RUN npm install -g agent-browser @anthropic-ai/claude-code
 
+# Install iCloud calendar tool
+COPY skills/icloud-calendar/icloud-calendar.mjs /usr/local/bin/icloud-calendar
+RUN chmod +x /usr/local/bin/icloud-calendar
+
 # Create app directory
 WORKDIR /app
 

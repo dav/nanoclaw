@@ -192,6 +192,12 @@ function buildContainerArgs(mounts: VolumeMount[], containerName: string): strin
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
+  // Pass tool credentials from .env (only keys that are present)
+  const toolEnv = readEnvFile(['ICLOUD_APPLE_ID', 'ICLOUD_APP_PASSWORD']);
+  for (const [key, val] of Object.entries(toolEnv)) {
+    args.push('-e', `${key}=${val}`);
+  }
+
   // Run as host user so bind-mounted files are accessible.
   // Skip when running as root (uid 0), as the container's node user (uid 1000),
   // or when getuid is unavailable (native Windows without WSL).
