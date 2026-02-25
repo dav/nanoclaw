@@ -85,7 +85,7 @@ async function syncGroups(projectRoot: string): Promise<void> {
   let syncOk = false;
   try {
     const syncScript = `
-import makeWASocket, { useMultiFileAuthState, makeCacheableSignalKeyStore, Browsers } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState, makeCacheableSignalKeyStore, Browsers, fetchLatestWaWebVersion } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import path from 'path';
 import fs from 'fs';
@@ -109,8 +109,10 @@ const upsert = db.prepare(
 );
 
 const { state, saveCreds } = await useMultiFileAuthState(authDir);
+const { version } = await fetchLatestWaWebVersion({}).catch(() => ({ version: undefined }));
 
 const sock = makeWASocket({
+  version,
   auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, logger) },
   printQRInTerminal: false,
   logger,
@@ -122,6 +124,7 @@ const timeout = setTimeout(() => {
   process.exit(1);
 }, 30000);
 
+let selfClosed = false;
 sock.ev.on('creds.update', saveCreds);
 
 sock.ev.on('connection.update', async (update) => {
@@ -141,11 +144,13 @@ sock.ev.on('connection.update', async (update) => {
       console.error('FETCH_ERROR:' + err.message);
     } finally {
       clearTimeout(timeout);
+      selfClosed = true;
       sock.end(undefined);
       db.close();
       process.exit(0);
     }
   } else if (update.connection === 'close') {
+    if (selfClosed) return;
     clearTimeout(timeout);
     console.error('CONNECTION_CLOSED');
     process.exit(1);
@@ -153,14 +158,28 @@ sock.ev.on('connection.update', async (update) => {
 });
 `;
 
-    const output = execSync(`node --input-type=module -e ${JSON.stringify(syncScript)}`, {
-      cwd: projectRoot,
-      encoding: 'utf-8',
-      timeout: 45000,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    syncOk = output.includes('SYNCED:');
-    logger.info({ output: output.trim() }, 'Sync output');
+    const tmpScript = path.join(projectRoot, 'store', '_sync_groups_tmp.mjs');
+    fs.mkdirSync(path.dirname(tmpScript), { recursive: true });
+    fs.writeFileSync(tmpScript, syncScript, 'utf-8');
+    let stdout = '';
+    try {
+      stdout = execSync(`node ${JSON.stringify(tmpScript)}`, {
+        cwd: projectRoot,
+        encoding: 'utf-8',
+        timeout: 45000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (err: any) {
+      // execSync throws on non-zero exit, but stdout may still contain SYNCED:
+      stdout = err?.stdout ?? '';
+      if (!stdout.includes('SYNCED:')) {
+        logger.error({ err }, 'Sync failed');
+      }
+    } finally {
+      try { fs.unlinkSync(tmpScript); } catch { /* ignore */ }
+    }
+    syncOk = stdout.includes('SYNCED:');
+    if (syncOk) logger.info({ stdout: stdout.trim() }, 'Sync output');
   } catch (err) {
     logger.error({ err }, 'Sync failed');
   }
