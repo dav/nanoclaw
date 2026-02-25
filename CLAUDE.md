@@ -55,6 +55,25 @@ systemctl --user stop nanoclaw
 systemctl --user restart nanoclaw
 ```
 
+## Deploying Skill Changes
+
+Skills live in `container/skills/{name}/`. Two files per skill, two different update paths:
+
+| Changed file | Required action |
+|---|---|
+| `SKILL.md` | Nothing — auto-synced from `container/skills/` on every container start |
+| `*.mjs` script | Docker image rebuild (script is installed in the image at `/usr/local/bin/`) |
+
+When a `.mjs` script changes, always prune the build cache first or the old file will be cached:
+```bash
+docker builder prune -f && ./container/build.sh && systemctl --user restart nanoclaw
+```
+
+When only `src/*.ts` changes (no skill scripts):
+```bash
+npm run build && systemctl --user restart nanoclaw
+```
+
 ## Container Build Cache
 
 The container buildkit caches the build context aggressively. `--no-cache` alone does NOT invalidate COPY steps — the builder's volume retains stale files. To force a truly clean rebuild, prune the builder then re-run `./container/build.sh`.

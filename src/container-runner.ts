@@ -193,7 +193,11 @@ function buildContainerArgs(mounts: VolumeMount[], containerName: string): strin
   args.push('-e', `TZ=${TIMEZONE}`);
 
   // Pass tool credentials from .env (only keys that are present)
-  const toolEnv = readEnvFile(['ICLOUD_APPLE_ID', 'ICLOUD_APP_PASSWORD']);
+  const toolEnv = readEnvFile([
+    'ICLOUD_APPLE_ID', 'ICLOUD_APP_PASSWORD',
+    'MUSICKIT_TEAM_ID', 'MUSICKIT_KEY_ID', 'MUSICKIT_PRIVATE_KEY_B64',
+    'APPLE_MUSIC_USER_TOKEN', 'APPLE_MUSIC_STOREFRONT',
+  ]);
   for (const [key, val] of Object.entries(toolEnv)) {
     args.push('-e', `${key}=${val}`);
   }
@@ -237,6 +241,13 @@ export async function runContainerAgent(
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
   const containerArgs = buildContainerArgs(mounts, containerName);
 
+  // Redact -e KEY=VALUE entries so credentials don't appear in logs
+  const redactedArgs = containerArgs.map((arg, i) => {
+    if (i > 0 && containerArgs[i - 1] === '-e' && arg.includes('=')) {
+      return `${arg.slice(0, arg.indexOf('='))}=REDACTED`;
+    }
+    return arg;
+  });
   logger.debug(
     {
       group: group.name,
@@ -245,7 +256,7 @@ export async function runContainerAgent(
         (m) =>
           `${m.hostPath} -> ${m.containerPath}${m.readonly ? ' (ro)' : ''}`,
       ),
-      containerArgs: containerArgs.join(' '),
+      containerArgs: redactedArgs.join(' '),
     },
     'Container mount configuration',
   );

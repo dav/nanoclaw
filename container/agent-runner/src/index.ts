@@ -459,6 +459,38 @@ async function runQuery(
     const msgType = message.type === 'system' ? `system/${(message as { subtype?: string }).subtype}` : message.type;
     log(`[msg #${messageCount}] type=${msgType}`);
 
+    // Log tool invocations from assistant messages
+    if (message.type === 'assistant') {
+      const content = (message as { message?: { content?: unknown[] } }).message?.content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          const b = block as { type?: string; name?: string; input?: Record<string, unknown> };
+          if (b.type === 'tool_use') {
+            const inputSummary = b.name === 'Bash' && b.input?.command
+              ? `$ ${String(b.input.command).slice(0, 300)}`
+              : JSON.stringify(b.input || {}).slice(0, 300);
+            log(`  → ${b.name}: ${inputSummary}`);
+          }
+        }
+      }
+    }
+
+    // Log tool results from user messages
+    if (message.type === 'user') {
+      const content = (message as { message?: { content?: unknown[] } }).message?.content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          const b = block as { type?: string; content?: unknown[] | string };
+          if (b.type === 'tool_result') {
+            const text = Array.isArray(b.content)
+              ? (b.content as { text?: string }[]).map(c => c.text || '').join('')
+              : String(b.content || '');
+            if (text.trim()) log(`  ← result: ${text.slice(0, 500)}`);
+          }
+        }
+      }
+    }
+
     if (message.type === 'assistant' && 'uuid' in message) {
       lastAssistantUuid = (message as { uuid: string }).uuid;
     }

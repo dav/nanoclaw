@@ -36,6 +36,10 @@ RUN npm install -g agent-browser @anthropic-ai/claude-code
 COPY skills/icloud-calendar/icloud-calendar.mjs /usr/local/bin/icloud-calendar
 RUN chmod +x /usr/local/bin/icloud-calendar
 
+# Install Apple Music tool
+COPY skills/apple-music/apple-music.mjs /usr/local/bin/apple-music
+RUN chmod +x /usr/local/bin/apple-music
+
 # Create app directory
 WORKDIR /app
 
