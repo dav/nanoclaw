@@ -508,7 +508,19 @@ async function runQuery(
     if (message.type === 'result') {
       resultCount++;
       const textResult = 'result' in message ? (message as { result?: string }).result : null;
-      log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
+      const usage = (message as { usage?: { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number } }).usage;
+      const cost = (message as { total_cost_usd?: number }).total_cost_usd;
+      const turns = (message as { num_turns?: number }).num_turns;
+      let usageSummary = '';
+      if (usage) {
+        const parts = [`in:${usage.input_tokens ?? 0}`, `out:${usage.output_tokens ?? 0}`];
+        if (usage.cache_read_input_tokens) parts.push(`cache_read:${usage.cache_read_input_tokens}`);
+        if (usage.cache_creation_input_tokens) parts.push(`cache_write:${usage.cache_creation_input_tokens}`);
+        usageSummary = ` tokens=(${parts.join(' ')})`;
+      }
+      const costStr = cost != null ? ` cost=$${cost.toFixed(4)}` : '';
+      const turnsStr = turns != null ? ` turns=${turns}` : '';
+      log(`Result #${resultCount}: subtype=${message.subtype}${turnsStr}${usageSummary}${costStr}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
       writeOutput({
         status: 'success',
         result: textResult || null,
