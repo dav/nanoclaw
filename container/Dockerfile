@@ -40,6 +40,10 @@ RUN chmod +x /usr/local/bin/icloud-calendar
 COPY skills/apple-music/apple-music.mjs /usr/local/bin/apple-music
 RUN chmod +x /usr/local/bin/apple-music
 
+# Install Gmail read-only tool
+COPY skills/gmail/gmail.mjs /usr/local/bin/gmail
+RUN chmod +x /usr/local/bin/gmail
+
 # Create app directory
 WORKDIR /app
 

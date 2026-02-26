@@ -4,6 +4,7 @@
  */
 import { ChildProcess, exec, spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import {
@@ -164,6 +165,16 @@ function buildVolumeMounts(
     containerPath: '/app/src',
     readonly: false,
   });
+
+  // Gmail read-only credentials (optional — only mounted if set up)
+  const gmailCredsDir = path.join(os.homedir(), '.gmail-readonly');
+  if (fs.existsSync(gmailCredsDir)) {
+    mounts.push({
+      hostPath: gmailCredsDir,
+      containerPath: '/home/node/.gmail-readonly',
+      readonly: false, // needs write to cache refreshed tokens
+    });
+  }
 
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {
