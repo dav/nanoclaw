@@ -30,11 +30,22 @@ interface ContainerInput {
   secrets?: Record<string, string>;
 }
 
+interface UsageSummary {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  costUsd: number;
+  turns: number;
+  model: string;
+}
+
 interface ContainerOutput {
   status: 'success' | 'error';
   result: string | null;
   newSessionId?: string;
   error?: string;
+  usage?: UsageSummary;
 }
 
 interface SessionEntry {
@@ -361,7 +372,7 @@ async function runQuery(
   containerInput: ContainerInput,
   sdkEnv: Record<string, string | undefined>,
   resumeAt?: string,
-): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean }> {
+): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean; usage: UsageSummary }> {
   const stream = new MessageStream();
   stream.push(prompt);
 
@@ -390,6 +401,10 @@ async function runQuery(
   let lastAssistantUuid: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
+  const usage: UsageSummary = {
+    inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+    costUsd: 0, turns: 0, model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
+  };
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
   const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
@@ -424,6 +439,7 @@ async function runQuery(
       systemPrompt: globalClaudeMd
         ? { type: 'preset' as const, preset: 'claude_code' as const, append: globalClaudeMd }
         : undefined,
+      model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
       allowedTools: [
         'Bash',
         'Read', 'Write', 'Edit', 'Glob', 'Grep',
@@ -508,19 +524,28 @@ async function runQuery(
     if (message.type === 'result') {
       resultCount++;
       const textResult = 'result' in message ? (message as { result?: string }).result : null;
-      const usage = (message as { usage?: { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number } }).usage;
+      const usage_data = (message as { usage?: { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number } }).usage;
       const cost = (message as { total_cost_usd?: number }).total_cost_usd;
       const turns = (message as { num_turns?: number }).num_turns;
       let usageSummary = '';
-      if (usage) {
-        const parts = [`in:${usage.input_tokens ?? 0}`, `out:${usage.output_tokens ?? 0}`];
-        if (usage.cache_read_input_tokens) parts.push(`cache_read:${usage.cache_read_input_tokens}`);
-        if (usage.cache_creation_input_tokens) parts.push(`cache_write:${usage.cache_creation_input_tokens}`);
+      if (usage_data) {
+        const parts = [`in:${usage_data.input_tokens ?? 0}`, `out:${usage_data.output_tokens ?? 0}`];
+        if (usage_data.cache_read_input_tokens) parts.push(`cache_read:${usage_data.cache_read_input_tokens}`);
+        if (usage_data.cache_creation_input_tokens) parts.push(`cache_write:${usage_data.cache_creation_input_tokens}`);
         usageSummary = ` tokens=(${parts.join(' ')})`;
       }
       const costStr = cost != null ? ` cost=$${cost.toFixed(4)}` : '';
       const turnsStr = turns != null ? ` turns=${turns}` : '';
       log(`Result #${resultCount}: subtype=${message.subtype}${turnsStr}${usageSummary}${costStr}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
+      // Accumulate usage totals
+      if (usage_data) {
+        usage.inputTokens += usage_data.input_tokens ?? 0;
+        usage.outputTokens += usage_data.output_tokens ?? 0;
+        usage.cacheReadTokens += usage_data.cache_read_input_tokens ?? 0;
+        usage.cacheWriteTokens += usage_data.cache_creation_input_tokens ?? 0;
+      }
+      if (cost != null) usage.costUsd += cost;
+      if (turns != null) usage.turns = Math.max(usage.turns, turns);
       writeOutput({
         status: 'success',
         result: textResult || null,
@@ -531,7 +556,7 @@ async function runQuery(
 
   ipcPolling = false;
   log(`Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`);
-  return { newSessionId, lastAssistantUuid, closedDuringQuery };
+  return { newSessionId, lastAssistantUuid, closedDuringQuery, usage };
 }
 
 async function main(): Promise<void> {
@@ -581,6 +606,10 @@ async function main(): Promise<void> {
 
   // Query loop: run query → wait for IPC message → run new query → repeat
   let resumeAt: string | undefined;
+  const totalUsage: UsageSummary = {
+    inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+    costUsd: 0, turns: 0, model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
+  };
   try {
     while (true) {
       log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
@@ -592,6 +621,13 @@ async function main(): Promise<void> {
       if (queryResult.lastAssistantUuid) {
         resumeAt = queryResult.lastAssistantUuid;
       }
+      // Accumulate usage across all queries in this container run
+      totalUsage.inputTokens += queryResult.usage.inputTokens;
+      totalUsage.outputTokens += queryResult.usage.outputTokens;
+      totalUsage.cacheReadTokens += queryResult.usage.cacheReadTokens;
+      totalUsage.cacheWriteTokens += queryResult.usage.cacheWriteTokens;
+      totalUsage.costUsd += queryResult.usage.costUsd;
+      totalUsage.turns += queryResult.usage.turns;
 
       // If _close was consumed during the query, exit immediately.
       // Don't emit a session-update marker (it would reset the host's
@@ -626,6 +662,11 @@ async function main(): Promise<void> {
       error: errorMessage
     });
     process.exit(1);
+  }
+
+  // Emit accumulated usage so the host can save it to usage.jsonl
+  if (totalUsage.costUsd > 0 || totalUsage.inputTokens > 0) {
+    writeOutput({ status: 'success', result: null, newSessionId: sessionId, usage: totalUsage });
   }
 }
 

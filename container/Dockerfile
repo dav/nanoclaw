@@ -44,6 +44,10 @@ RUN chmod +x /usr/local/bin/apple-music
 COPY skills/gmail/gmail.mjs /usr/local/bin/gmail
 RUN chmod +x /usr/local/bin/gmail
 
+# Install usage tracking tool
+COPY skills/usage/usage.mjs /usr/local/bin/usage
+RUN chmod +x /usr/local/bin/usage
+
 # Create app directory
 WORKDIR /app
 

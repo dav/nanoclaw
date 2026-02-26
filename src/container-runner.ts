@@ -38,11 +38,22 @@ export interface ContainerInput {
   secrets?: Record<string, string>;
 }
 
+export interface UsageSummary {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  costUsd: number;
+  turns: number;
+  model: string;
+}
+
 export interface ContainerOutput {
   status: 'success' | 'error';
   result: string | null;
   newSessionId?: string;
   error?: string;
+  usage?: UsageSummary;
 }
 
 interface VolumeMount {
@@ -203,8 +214,9 @@ function buildContainerArgs(mounts: VolumeMount[], containerName: string): strin
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
-  // Pass tool credentials from .env (only keys that are present)
+  // Pass tool credentials and model config from .env (only keys that are present)
   const toolEnv = readEnvFile([
+    'CLAUDE_MODEL',
     'ICLOUD_APPLE_ID', 'ICLOUD_APP_PASSWORD',
     'MUSICKIT_TEAM_ID', 'MUSICKIT_KEY_ID', 'MUSICKIT_PRIVATE_KEY_B64',
     'APPLE_MUSIC_USER_TOKEN', 'APPLE_MUSIC_STOREFRONT',
@@ -234,6 +246,21 @@ function buildContainerArgs(mounts: VolumeMount[], containerName: string): strin
   args.push(CONTAINER_IMAGE);
 
   return args;
+}
+
+function appendUsageRecord(group: RegisteredGroup, usage: UsageSummary): void {
+  try {
+    const usageDir = path.join(DATA_DIR, 'usage');
+    fs.mkdirSync(usageDir, { recursive: true });
+    const record = JSON.stringify({
+      ts: new Date().toISOString(),
+      group: group.folder,
+      ...usage,
+    });
+    fs.appendFileSync(path.join(usageDir, 'usage.jsonl'), record + '\n');
+  } catch (err) {
+    logger.warn({ err }, 'Failed to append usage record');
+  }
 }
 
 export async function runContainerAgent(
@@ -344,6 +371,9 @@ export async function runContainerAgent(
             const parsed: ContainerOutput = JSON.parse(jsonStr);
             if (parsed.newSessionId) {
               newSessionId = parsed.newSessionId;
+            }
+            if (parsed.usage) {
+              appendUsageRecord(group, parsed.usage);
             }
             hadStreamingOutput = true;
             // Activity detected — reset the hard timeout
