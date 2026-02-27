@@ -48,6 +48,18 @@ RUN chmod +x /usr/local/bin/gmail
 COPY skills/usage/usage.mjs /usr/local/bin/usage
 RUN chmod +x /usr/local/bin/usage
 
+# Install Goodreads tool
+COPY skills/goodreads/goodreads.mjs /usr/local/bin/goodreads
+RUN chmod +x /usr/local/bin/goodreads
+
+# Install SFPL catalog tool
+COPY skills/sfpl/sfpl.mjs /usr/local/bin/sfpl
+RUN chmod +x /usr/local/bin/sfpl
+
+# Install Mechanics Institute Library catalog tool
+COPY skills/mi-library/mi-library.mjs /usr/local/bin/mi-library
+RUN chmod +x /usr/local/bin/mi-library
+
 # Create app directory
 WORKDIR /app
 

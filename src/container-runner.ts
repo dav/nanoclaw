@@ -187,6 +187,16 @@ function buildVolumeMounts(
     });
   }
 
+  // Goodreads browser auth state (optional — only mounted if directory exists)
+  const goodreadsDir = path.join(os.homedir(), '.goodreads');
+  if (fs.existsSync(goodreadsDir)) {
+    mounts.push({
+      hostPath: goodreadsDir,
+      containerPath: '/home/node/.goodreads',
+      readonly: false, // needs write to save/refresh auth state
+    });
+  }
+
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {
     const validatedMounts = validateAdditionalMounts(
@@ -220,6 +230,7 @@ function buildContainerArgs(mounts: VolumeMount[], containerName: string): strin
     'ICLOUD_APPLE_ID', 'ICLOUD_APP_PASSWORD',
     'MUSICKIT_TEAM_ID', 'MUSICKIT_KEY_ID', 'MUSICKIT_PRIVATE_KEY_B64',
     'APPLE_MUSIC_USER_TOKEN', 'APPLE_MUSIC_STOREFRONT',
+    'GOODREADS_EMAIL', 'GOODREADS_PASSWORD',
   ]);
   for (const [key, val] of Object.entries(toolEnv)) {
     args.push('-e', `${key}=${val}`);
