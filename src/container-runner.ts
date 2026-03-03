@@ -232,6 +232,7 @@ function buildContainerArgs(mounts: VolumeMount[], containerName: string): strin
     'APPLE_MUSIC_USER_TOKEN', 'APPLE_MUSIC_STOREFRONT',
     'GOODREADS_EMAIL', 'GOODREADS_PASSWORD',
     'NZBS_API_URL', 'NZBS_API_KEY',
+    'SABNZBD_URL', 'SABNZBD_API_KEY',
   ]);
   for (const [key, val] of Object.entries(toolEnv)) {
     args.push('-e', `${key}=${val}`);

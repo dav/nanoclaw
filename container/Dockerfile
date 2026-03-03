@@ -64,6 +64,10 @@ RUN chmod +x /usr/local/bin/mi-library
 COPY skills/nzb/nzb.mjs /usr/local/bin/nzb
 RUN chmod +x /usr/local/bin/nzb
 
+# Install SABnzbd tool
+COPY skills/sabnzbd/sabnzbd.mjs /usr/local/bin/sabnzbd
+RUN chmod +x /usr/local/bin/sabnzbd
+
 # Create app directory
 WORKDIR /app
 
