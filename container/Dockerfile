@@ -60,6 +60,10 @@ RUN chmod +x /usr/local/bin/sfpl
 COPY skills/mi-library/mi-library.mjs /usr/local/bin/mi-library
 RUN chmod +x /usr/local/bin/mi-library
 
+# Install NZB search tool
+COPY skills/nzb/nzb.mjs /usr/local/bin/nzb
+RUN chmod +x /usr/local/bin/nzb
+
 # Create app directory
 WORKDIR /app
 
