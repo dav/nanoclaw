@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * icloud-calendar — read iCloud calendar events via CalDAV
+ * icloud-calendar — read and create iCloud calendar events via CalDAV
  * Usage: icloud-calendar today|tomorrow|week|range YYYY-MM-DD YYYY-MM-DD|list-calendars
+ *        icloud-calendar create "Title" "YYYY-MM-DD HH:MM" "YYYY-MM-DD HH:MM" [--calendar Name] [--location Place]
  *
  * Requires env vars: ICLOUD_APPLE_ID, ICLOUD_APP_PASSWORD
  * No npm dependencies — uses Node.js built-in https module only.
@@ -146,6 +147,8 @@ async function discover() {
   for (const response of xmlInnerAll(lResp.body, 'response')) {
     const href = extractHref(response);
     if (!href || href === homeHref) continue;
+    const resourcetype = xmlInner(response, 'resourcetype') || '';
+    if (!resourcetype.match(/calendar/i)) continue;
     if (!response.match(/VEVENT/i)) continue;
     if (response.match(/schedule-inbox|schedule-outbox/i)) continue;
     const name = xmlInner(response, 'displayname') || href.split('/').filter(Boolean).pop() || 'Calendar';
@@ -323,6 +326,73 @@ function printEvents(events) {
   }
 }
 
+// ── Create event ──────────────────────────────────────────────────────────────
+
+function generateUID() {
+  const hex = () => Math.random().toString(16).slice(2, 10);
+  return `${hex()}${hex()}-${hex()}-${hex()}-${hex()}-${hex()}${hex()}${hex()}`;
+}
+
+function toICalStamp(d) {
+  const pad = (n) => n.toString().padStart(2, '0');
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
+
+function toICalAllDay(d) {
+  const pad = (n) => n.toString().padStart(2, '0');
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+}
+
+function escapeIcal(s) {
+  return s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+}
+
+async function createEvent({ title, start, end, allDay, calendarName, location }) {
+  const { calendars } = await discover();
+
+  let cal;
+  if (calendarName) {
+    cal = calendars.find(c => c.name.toLowerCase() === calendarName.toLowerCase());
+    if (!cal) {
+      const names = calendars.map(c => c.name).join(', ');
+      die(`Calendar "${calendarName}" not found. Available: ${names}`);
+    }
+  } else {
+    cal = calendars[0];
+  }
+
+  const uid = generateUID();
+  const dtstamp = toICalStamp(new Date());
+
+  let dtstart, dtend;
+  if (allDay) {
+    dtstart = `DTSTART;VALUE=DATE:${toICalAllDay(start)}`;
+    dtend = `DTEND;VALUE=DATE:${toICalAllDay(end)}`;
+  } else {
+    dtstart = `DTSTART:${toICalStamp(start)}`;
+    dtend = `DTEND:${toICalStamp(end)}`;
+  }
+
+  let vevent = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//NanoClaw//icloud-calendar//EN\r\nBEGIN:VEVENT\r\nUID:${uid}\r\nDTSTAMP:${dtstamp}\r\n${dtstart}\r\n${dtend}\r\nSUMMARY:${escapeIcal(title)}\r\n`;
+  if (location) vevent += `LOCATION:${escapeIcal(location)}\r\n`;
+  vevent += `END:VEVENT\r\nEND:VCALENDAR\r\n`;
+
+  const eventUrl = `${cal.url}${uid}.ics`;
+  const resp = await request('PUT', eventUrl, { 'If-None-Match': '*' }, vevent);
+
+  if (resp.status >= 200 && resp.status < 300) {
+    console.log(`Created "${title}" on ${cal.name}`);
+    if (allDay) {
+      console.log(`  Date: ${start.toDateString()}`);
+    } else {
+      console.log(`  ${fmtTime(start)}–${fmtTime(end)}, ${start.toDateString()}`);
+    }
+    if (location) console.log(`  Location: ${location}`);
+  } else {
+    die(`Failed to create event (HTTP ${resp.status}): ${resp.body.slice(0, 200)}`);
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function die(msg) { console.error(msg); process.exit(1); }
@@ -349,8 +419,43 @@ async function main() {
     endDate = new Date(args[1] + 'T23:59:59');
   } else if (cmd === 'list-calendars') {
     listOnly = true; startDate = endDate = now;
+  } else if (cmd === 'create') {
+    // create "Title" "YYYY-MM-DD HH:MM" "YYYY-MM-DD HH:MM" [--calendar Name] [--location Place]
+    // create "Title" "YYYY-MM-DD" [--calendar Name] [--location Place]  (all-day)
+    if (args.length < 2) die('Usage: icloud-calendar create "Title" "YYYY-MM-DD HH:MM" "YYYY-MM-DD HH:MM" [--calendar Name] [--location Place]\n       icloud-calendar create "Title" "YYYY-MM-DD" [--calendar Name] [--location Place]  (all-day)');
+    const title = args[0];
+    const startArg = args[1];
+    const isAllDay = /^\d{4}-\d{2}-\d{2}$/.test(startArg);
+
+    let start, end, allDay = false, restArgs;
+    if (isAllDay) {
+      allDay = true;
+      start = new Date(startArg + 'T00:00:00');
+      // If next arg is also a date, use it as end; otherwise end = start + 1 day
+      if (args[2] && /^\d{4}-\d{2}-\d{2}$/.test(args[2])) {
+        end = addDays(new Date(args[2] + 'T00:00:00'), 1); // CalDAV all-day end is exclusive
+        restArgs = args.slice(3);
+      } else {
+        end = addDays(start, 1);
+        restArgs = args.slice(2);
+      }
+    } else {
+      start = new Date(startArg.replace(' ', 'T') + ':00');
+      if (!args[2]) die('End time required for timed events. Usage: icloud-calendar create "Title" "YYYY-MM-DD HH:MM" "YYYY-MM-DD HH:MM"');
+      end = new Date(args[2].replace(' ', 'T') + ':00');
+      restArgs = args.slice(3);
+    }
+
+    let calendarName = null, location = null;
+    for (let i = 0; i < restArgs.length; i++) {
+      if (restArgs[i] === '--calendar' && restArgs[i + 1]) { calendarName = restArgs[++i]; }
+      else if (restArgs[i] === '--location' && restArgs[i + 1]) { location = restArgs[++i]; }
+    }
+
+    await createEvent({ title, start, end, allDay, calendarName, location });
+    return;
   } else {
-    die('Usage: icloud-calendar today|tomorrow|week|range YYYY-MM-DD YYYY-MM-DD|list-calendars');
+    die('Usage: icloud-calendar today|tomorrow|week|range|create|list-calendars\n  Read:   icloud-calendar today|tomorrow|week|range YYYY-MM-DD YYYY-MM-DD\n  Create: icloud-calendar create "Title" "YYYY-MM-DD HH:MM" "YYYY-MM-DD HH:MM" [--calendar Name] [--location Place]');
   }
 
   const { calendars, serverBase } = await discover();
