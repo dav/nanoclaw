@@ -215,7 +215,19 @@ function buildVolumeMounts(
  * Secrets are never written to disk or mounted as files.
  */
 function readSecrets(): Record<string, string> {
-  return readEnvFile(['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY']);
+  return readEnvFile([
+    // Claude auth
+    'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY',
+    // Model config
+    'CLAUDE_MODEL',
+    // Tool credentials
+    'ICLOUD_APPLE_ID', 'ICLOUD_APP_PASSWORD',
+    'MUSICKIT_TEAM_ID', 'MUSICKIT_KEY_ID', 'MUSICKIT_PRIVATE_KEY_B64',
+    'APPLE_MUSIC_USER_TOKEN', 'APPLE_MUSIC_STOREFRONT',
+    'GOODREADS_EMAIL', 'GOODREADS_PASSWORD',
+    'NZBS_API_URL', 'NZBS_API_KEY',
+    'SABNZBD_URL', 'SABNZBD_API_KEY',
+  ]);
 }
 
 function buildContainerArgs(mounts: VolumeMount[], containerName: string): string[] {
@@ -224,19 +236,8 @@ function buildContainerArgs(mounts: VolumeMount[], containerName: string): strin
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
-  // Pass tool credentials and model config from .env (only keys that are present)
-  const toolEnv = readEnvFile([
-    'CLAUDE_MODEL',
-    'ICLOUD_APPLE_ID', 'ICLOUD_APP_PASSWORD',
-    'MUSICKIT_TEAM_ID', 'MUSICKIT_KEY_ID', 'MUSICKIT_PRIVATE_KEY_B64',
-    'APPLE_MUSIC_USER_TOKEN', 'APPLE_MUSIC_STOREFRONT',
-    'GOODREADS_EMAIL', 'GOODREADS_PASSWORD',
-    'NZBS_API_URL', 'NZBS_API_KEY',
-    'SABNZBD_URL', 'SABNZBD_API_KEY',
-  ]);
-  for (const [key, val] of Object.entries(toolEnv)) {
-    args.push('-e', `${key}=${val}`);
-  }
+  // Tool credentials and model config are passed via stdin (not -e)
+  // to avoid exposure in docker inspect and the host process table.
 
   // Run as host user so bind-mounted files are accessible.
   // Skip when running as root (uid 0), as the container's node user (uid 1000),

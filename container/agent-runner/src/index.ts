@@ -577,11 +577,21 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Build SDK env: merge secrets into process.env for the SDK only.
-  // Secrets never touch process.env itself, so Bash subprocesses can't see them.
+  // Separate SDK-only secrets (Claude auth) from tool credentials.
+  // Tool credentials go into process.env so Bash subprocesses (skill scripts) can use them.
+  // SDK auth secrets stay out of process.env so they aren't leaked to Bash subprocesses.
+  const SDK_ONLY_KEYS = new Set(['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY']);
+  const secrets = containerInput.secrets || {};
+  for (const [key, value] of Object.entries(secrets)) {
+    if (!SDK_ONLY_KEYS.has(key)) {
+      process.env[key] = value;
+    }
+  }
   const sdkEnv: Record<string, string | undefined> = { ...process.env };
-  for (const [key, value] of Object.entries(containerInput.secrets || {})) {
-    sdkEnv[key] = value;
+  for (const [key, value] of Object.entries(secrets)) {
+    if (SDK_ONLY_KEYS.has(key)) {
+      sdkEnv[key] = value;
+    }
   }
 
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
