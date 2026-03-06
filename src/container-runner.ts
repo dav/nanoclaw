@@ -177,15 +177,6 @@ function buildVolumeMounts(
     readonly: false,
   });
 
-  // Gmail read-only credentials (optional — only mounted if set up)
-  const gmailCredsDir = path.join(os.homedir(), '.gmail-readonly');
-  if (fs.existsSync(gmailCredsDir)) {
-    mounts.push({
-      hostPath: gmailCredsDir,
-      containerPath: '/home/node/.gmail-readonly',
-      readonly: false, // needs write to cache refreshed tokens
-    });
-  }
 
   // Goodreads browser auth state (optional — only mounted if directory exists)
   const goodreadsDir = path.join(os.homedir(), '.goodreads');
