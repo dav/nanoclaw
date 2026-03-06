@@ -27,6 +27,7 @@ const AUTH_DIR = process.env.GOODREADS_AUTH_DIR || '/home/node/.goodreads';
 const AUTH_FILE = path.join(AUTH_DIR, 'auth.json');
 const EMAIL = process.env.GOODREADS_EMAIL;
 const PASSWORD = process.env.GOODREADS_PASSWORD;
+const USER_ID = process.env.GOODREADS_USER_ID;
 const CHROMIUM = process.env.AGENT_BROWSER_EXECUTABLE_PATH || '/usr/bin/chromium';
 
 // Realistic desktop Chrome UA — avoids "HeadlessChrome" being sent to the server
@@ -197,14 +198,10 @@ async function cmdShelf(shelfName = 'to-read') {
   try {
     const ctx = await ensureAuth(browser);
     await withPage(ctx, async page => {
-      await page.goto('https://www.goodreads.com/profile', { waitUntil: 'domcontentloaded' });
-      const profileUrl = page.url();
-      const userIdMatch = profileUrl.match(/\/user\/show\/(\d+)/);
-      if (!userIdMatch) die('Could not determine your Goodreads user ID — are you logged in?');
-      const userId = userIdMatch[1];
+      if (!USER_ID) die('GOODREADS_USER_ID not configured — add it to your .env file');
 
       await page.goto(
-        `https://www.goodreads.com/review/list/${userId}?shelf=${encodeURIComponent(shelfName)}&per_page=30&view=table`,
+        `https://www.goodreads.com/review/list/${USER_ID}?shelf=${encodeURIComponent(shelfName)}&per_page=30&view=table`,
         { waitUntil: 'domcontentloaded' },
       );
 
@@ -303,9 +300,10 @@ async function cmdProfile() {
   try {
     const ctx = await ensureAuth(browser);
     await withPage(ctx, async page => {
-      await page.goto('https://www.goodreads.com/profile', { waitUntil: 'domcontentloaded' });
+      const profilePath = USER_ID ? `/user/show/${USER_ID}` : '/profile';
+      await page.goto(`https://www.goodreads.com${profilePath}`, { waitUntil: 'domcontentloaded' });
       const url = page.url();
-      const userId = url.match(/\/user\/show\/(\d+)/)?.[1] || '(unknown)';
+      const userId = USER_ID || url.match(/\/user\/show\/(\d+)/)?.[1] || '(unknown)';
 
       const profile = await page.evaluate(() => ({
         name:

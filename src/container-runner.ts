@@ -197,6 +197,16 @@ function buildVolumeMounts(
     });
   }
 
+  // SFPL browser auth state (optional — only mounted if directory exists)
+  const sfplDir = path.join(os.homedir(), '.sfpl');
+  if (fs.existsSync(sfplDir)) {
+    mounts.push({
+      hostPath: sfplDir,
+      containerPath: '/home/node/.sfpl',
+      readonly: false, // needs write to save/refresh auth state
+    });
+  }
+
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {
     const validatedMounts = validateAdditionalMounts(
@@ -224,9 +234,10 @@ function readSecrets(): Record<string, string> {
     'ICLOUD_APPLE_ID', 'ICLOUD_APP_PASSWORD',
     'MUSICKIT_TEAM_ID', 'MUSICKIT_KEY_ID', 'MUSICKIT_PRIVATE_KEY_B64',
     'APPLE_MUSIC_USER_TOKEN', 'APPLE_MUSIC_STOREFRONT',
-    'GOODREADS_EMAIL', 'GOODREADS_PASSWORD',
+    'GOODREADS_EMAIL', 'GOODREADS_PASSWORD', 'GOODREADS_USER_ID',
     'NZBS_API_URL', 'NZBS_API_KEY',
     'SABNZBD_URL', 'SABNZBD_API_KEY',
+    'SFPL_BARCODE', 'SFPL_PIN',
   ]);
 }
 
